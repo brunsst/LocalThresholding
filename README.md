@@ -1,5 +1,8 @@
 # LocalThresholding
-Performs locally adaptive Otsu thresholding on 3D image sequences of tomographic reconstructions
+
+By default traverses a 3D image stack and calculates sparse Otsu thresholds every 50 voxels for a spherical region of 200 voxels radius.
+Thresholds between the support points are interpolated linearly.
+Default settings expect a 
 
 ### Compilation
 
