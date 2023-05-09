@@ -1,311 +1,231 @@
 #include <iostream>
-#include <omp.h>
-#include <math.h>
-
-#include <libgen.h>
 #include <unistd.h>
-#include <linux/limits.h>
+#include <chrono>
+#include <omp.h>
 
-#include "hdcommunication.h"
-#include "auxiliary.h"
-#include "histogram.h"
+#include "Geometry/hdcommunication.h"
+#include "Geometry/auxiliary.h"
+
+#include "anisodiff_cpufilters.h"
+#include "anisodiff_gpufilters.h"
 
 using namespace std;
 
+/*********************************************************************************************************************************************************
+ *
+ * Location: Helmholtz-Zentrum fuer Material und Kuestenforschung, Max-Planck-Strasse 1, 21502 Geesthacht
+ * Author: Stefan Bruns
+ * Contact: bruns@nano.ku.dk
+ *
+ * License: TBA
+ *
+ *********************************************************************************************************************************************************/
+
 int main(int argc, char* argv[])
 {
-    string inpath = "";
-    string outpath = "";
+	/////////////////////////////////////////////////////////////
+	////////////////////////////////////////////////////////////
 
-    string threshhold_mode = "otsu"; //only mode right now. kmeans would be reasonable addition
-    int stepsize = 50;
-    int radius = 200;
+	string inpath = "";
+	string outpath = "";
 
-    bool full_reconstruction = true; //assuming 0.0 outside the reconstructed area
-    float rel_inside = 0.9; //if closer to center 0.0 is still a valid value
-    uint8_t oob_value = 0; //cvalue outside reconstructed area
+	bool cpu_mode = false;
+	int gpu0 = 0;
+	int slice_overlap = 50; //when processing chunks create an overlap region
+	int n_threads = 128; //number of CPU_threads (-1 to use all)
+	bool output_as_16bit = false;
+	bool twopoint5D = false;
 
-    bool save_thresholds = false;
+	int n_iters = 50;
+	int n_smoothings = 2;
+	bool threeDfilter = false;
 
-    ////////////////////////////////////////////////////////////
-    ////////////////////////////////////////////////////////////
-    string rootpath;
+	float a1 = 0.5;
+	float a2 = 0.9;
+	float a3 = 1.3;
+	float dt = 20;
+	float edge_th = 5.0;
 
-    if ("extract comman line arguments)")
-    {
-        for (uint16_t i = 1; i < argc; i++)
-        {
-            if ((string(argv[i]) == "-i") || (string(argv[i]) == "-input"))
-            {
-                i++;
-                inpath = string(argv[i]);
-            }
-            else if((string(argv[i]) == "-o") || (string(argv[i]) == "-output"))
-            {
-                i++;
-                outpath = string(argv[i]);
-            }
-            else if((string(argv[i]) == "-step") || (string(argv[i]) == "-stepsize"))
-            {
-                i++;
-                stepsize = atoi(argv[i]);
-            }
-            else if((string(argv[i]) == "-r") || (string(argv[i]) == "-radius"))
-            {
-                i++;
-                radius = atoi(argv[i]);
-            }
-            else if (string(argv[i]) == "--subregion")
-            {
-                full_reconstruction = false;
-            }
-            else if (string(argv[i]) == "--demo")
-            {
-                char result[PATH_MAX];
-                ssize_t count = readlink("/proc/self/exe", result, PATH_MAX);
-                const char *tmppath;
-                if (count != -1) {
-                    tmppath = dirname(result);
-                }
-                inpath = string(tmppath) +"/Demo/";
-            }
-        }
-        if (outpath.length() == 0){
-            rootpath = inpath.substr(0, inpath.rfind("/", inpath.length()-2)+1);
-            outpath = rootpath + "/localseg/";}
-        else
-            rootpath = outpath.substr(0, outpath.rfind("/", outpath.length()-2)+1);
+	int firstslice = 0;
+	int lastslice = -1;
 
-        outpath += "/";
-    }
+	////////////////////////////////////////////////////////////
+	////////////////////////////////////////////////////////////
 
-    //Grab data
-    ////////////////////////////////////////////////////////////
-    hdcom::HdCommunication hdcom;
+	if ("extract command line arguments"){
+		for (uint16_t i = 1; i < argc; i++)
+		{
+			if ((string(argv[i]) == "-i") || (string(argv[i]) == "-input"))
+			{
+				i++;
+				inpath = string(argv[i]);
+			}
+			else if ((string(argv[i]) == "-o") || (string(argv[i]) == "-outpath"))
+			{
+				i++;
+				outpath = string(argv[i]);
+			}
+			else if (string(argv[i]) == "-n_cpu" || string(argv[i]) == "-n_threads")
+			{
+				i++;
+				n_threads = atoi(argv[i]);
+			}
+			else if (string(argv[i]) == "--16bit")
+				output_as_16bit = true;
+			else if (string(argv[i]) == "--cpu")
+				cpu_mode = true;
+			else if (string(argv[i]) == "--3D")
+				threeDfilter = true;
+			else if (string(argv[i]) == "--2.5D")
+				twopoint5D = true;
+			else if (string(argv[i]) == "-gpu0")
+			{
+				i++;
+				gpu0 = atoi(argv[i]);
+			}
+			else if (string(argv[i]) == "-iter" || string(argv[i]) == "-n_iter" || string(argv[i]) == "-n_iters"  || string(argv[i]) == "-iters")
+			{
+				i++;
+				n_iters = atoi(argv[i]);
+			}
+			else if (string(argv[i]) == "-smoothings" || string(argv[i]) == "-n_smoothings" || string(argv[i]) == "-smoothing" || string(argv[i]) == "-n_smoothing")
+			{
+				i++;
+				n_smoothings = atoi(argv[i]);
+			}
+			else if (string(argv[i]) == "-a1")
+			{
+				i++;
+				a1 = atof(argv[i]);
+			}
+			else if (string(argv[i]) == "-a2")
+			{
+				i++;
+				a2 = atof(argv[i]);
+			}
+			else if (string(argv[i]) == "-a3")
+			{
+				i++;
+				a3 = atof(argv[i]);
+			}
+			else if (string(argv[i]) == "-dt")
+			{
+				i++;
+				dt = atof(argv[i]);
+			}
+			else if (string(argv[i]) == "-edge_th")
+			{
+				i++;
+				edge_th = atof(argv[i]);
+			}
+			else if (string(argv[i]) == "-overlap")
+			{
+				i++;
+				slice_overlap = atof(argv[i]);
+			}
+			else if (string(argv[i]) == "-zrange")
+			{
+				i++;
+				firstslice = atoi(argv[i]);
+				i++;
+				lastslice = atoi(argv[i]);
+			}
+		}
+	}
 
-    int shape[3];
-    float *input = hdcom.GetTif_unknowndim_32bit(inpath, shape, true);
+	string rootpath = inpath.substr(0, inpath.rfind("/", inpath.length()-2)+1);
+	if (outpath.length() == 0){
+		rootpath = inpath.substr(0, inpath.rfind("/", inpath.length()-2)+1);
+		outpath = rootpath + "/denoised/";}
+	else
+		rootpath = outpath.substr(0, outpath.rfind("/", outpath.length()-2)+1);
 
-    long long int nslice = shape[0]*shape[1];
-    long long int nstack = shape[2]*nslice;
+	if (n_threads > 0) omp_set_num_threads(min(n_threads, omp_get_max_threads()));
 
-    float center[3] = {shape[0]/2., shape[1]/2., shape[2]/2.};
+	////////////////////////////////////////////////////////////
 
-    int n_steps[3] = {max(2,shape[0]/stepsize+1), max(2,shape[1]/stepsize+1), max(2,shape[2]/stepsize+1)};
-    long long int nslice_th = n_steps[0]*n_steps[1];
-    long long int nstack_th = n_steps[2]*nslice_th;
+	cout << "------------------------------" << endl;
+	cout << "in: " << inpath << endl;
+	cout << "out: " << outpath << endl;
 
-    float *th_map = (float*) malloc(nstack_th*sizeof(*th_map));
-    ////////////////////////////////////////////////////////////
+	auto time0 = chrono::high_resolution_clock::now();
+	hdcom::HdCommunication hdcom;
+	int shape[3];
+	float* imgstack;
 
-    //Global histobounds
-    ////////////////////////////////////////////////////////////
-    cout << "global histobounds: ";
-    cout.flush();
+	if (firstslice <= 0 && lastslice < 0) imgstack = hdcom.GetTif_unknowndim_32bit(inpath, shape, true);
+	else
+	{
+		std::vector<string> filelist = hdcom.GetFilelist(inpath, shape);
+		imgstack = hdcom.Get3DTifSequence_32bitPointer(filelist,shape,firstslice,lastslice);
+	}
 
-    std::vector<float> temp;
-    for (long long int idx = 0; idx < nstack; idx++)
-    {
-        int z = idx/nslice;
-        int y = (idx-nslice*z)/shape[0];
-        int x = (idx-nslice*z-y*shape[0]);
+	if (cpu_mode || threeDfilter)
+	{
+		filter::AnisotropicDiffusion anisofilter;
 
-        if (full_reconstruction)
-        {
-            float sqdist = (x-center[0])*(x-center[0])+(y-center[1])*(y-center[1]);
+		anisofilter.n_iters = n_iters;
+		anisofilter.n_smoothings = n_smoothings;
+		anisofilter.a1 = a1;
+		anisofilter.a2 = a2;
+		anisofilter.a3 = a3;
+		anisofilter.dt = dt;
+		anisofilter.edge_threshold = edge_th;
 
-            if (sqdist > rel_inside/2.f*shape[0] && input[idx] == 0.0f)
-                continue;
-        }
+		if (threeDfilter)
+		{
+			std::cout << "Using 3D-Filter" << std::endl;
+			anisofilter.TschumperleDeriche_3D(imgstack, shape);
+		}
+		else if (twopoint5D)
+		{
+			std::cout << "Filtering with alternating directions" << std::endl;
+			anisofilter.TschumperleDeriche_2D_AlternatingDirections(imgstack, shape);
+		}
+		else
+		{
+			std::cout << "Filtering in xy" << std::endl;
+			anisofilter.TschumperleDeriche_2D(imgstack, shape);
+		}
+	}
+	else
+	{
+		gpufilter::AnisotropicDiffusion anisofilter;
 
-        temp.push_back(input[idx]);
-    }
-    histo::Histogram histo;
-    std::pair<float, float> histobounds = histo.get_effectivehistobounds(temp, 1000);
-    cout << histobounds.first << " " << histobounds.second << endl;
+		anisofilter.n_iters = n_iters;
+		anisofilter.n_smoothings = n_smoothings;
+		anisofilter.a1 = a1;
+		anisofilter.a2 = a2;
+		anisofilter.dt = dt;
+		anisofilter.edge_threshold = edge_th;
+		anisofilter.overlap = slice_overlap;
 
-    temp.clear();
-    ////////////////////////////////////////////////////////////
+		anisofilter.configure_device(shape, gpu0);
 
-    //create sparse thresholds
-    ////////////////////////////////////////////////////////////
-    cout << "creating sparse thresholds...";
-    cout.flush();
+		if (twopoint5D)
+		{
+			std::cout << "Filtering with alternating directions" << std::endl;
+			anisofilter.run_TschumperleDeriche_2D(imgstack, shape, true);
+		}
+		else
+		{
+			std::cout << "Filtering in xy" << std::endl;
+			anisofilter.run_TschumperleDeriche_2D(imgstack, shape);
+		}
 
-    //omp_set_num_threads(4);
 
-    #pragma omp parallel for
-    for (long long int thidx = 0; thidx < nstack_th; thidx++)
-    {
-        int th_z = thidx/nslice_th;
-        int th_y = (thidx-th_z*nslice_th)/n_steps[0];
-        int th_x = (thidx-th_z*nslice_th-th_y*n_steps[0]);
+		anisofilter.free_device();
+	}
 
-        int z0 = th_z*(shape[2]-1)/((float) (n_steps[2]-1));
-        int y0 = th_y*(shape[1]-1)/((float) (n_steps[1]-1));
-        int x0 = th_x*(shape[0]-1)/((float) (n_steps[0]-1));
+	if(!output_as_16bit)
+		hdcom.SaveTifSequence_32bit(std::max(0, firstslice), imgstack, shape, outpath, "anisofiltered", true);
+	else
+		hdcom.SaveTifSequence_as16bit(std::max(0, firstslice), imgstack,shape,outpath,"anisofiltered", true);
 
-        //Grab valid values
-        std::vector<float> values;
-        uint64_t invalid = 0;
-        uint64_t valid = 0;
+	auto time1 = chrono::high_resolution_clock::now();
 
-        for (int z1 = max(0, z0-radius); z1 < min(z0+radius, shape[2]); z1++)
-        {
-            for (int y1 = max(0, y0-radius); y1 < min(y0+radius, shape[1]); y1++)
-            {
-                for (int x1 = max(0, x0-radius); x1 < min(x0+radius, shape[0]); x1++)
-                {
-                    //not spherical
-                    float sqdist = (x1-x0)*(x1-x0)+(y1-y0)*(y1-y0)+(z1-z0)*(z1-z0);
-                    if (sqdist > radius*radius) continue;
-
-                    float val = input[z1*nslice+y1*shape[0]+x1];
-
-                    //out of bounds
-                    if (full_reconstruction)
-                    {
-                        sqdist = (x1-center[0])*(x1-center[0])+(y1-center[1])*(y1-center[1]);
-                        if (sqdist > rel_inside/2.f*shape[0] && val == 0.0f)
-                        {
-                            invalid++;
-                            continue;
-                        }
-                    }
-
-                    valid++;
-                    values.push_back(val);
-                }
-            }
-        }
-
-        if (values.size() > 1 && valid > invalid)
-        {
-            double this_th = aux::get_otsuthreshold(values, histobounds.first, histobounds.second);
-            th_map[thidx] = this_th;
-        }
-        else
-            th_map[thidx] = histobounds.second+1e-6f;
-    }
-    cout << endl;
-    ////////////////////////////////////////////////////////////
-
-    //hdcom.SaveTifSequence_32bit(th_map, n_steps, outpath, "thresholds", true);
-    //return 0;
-
-    //Linear interpolation
-    ////////////////////////////////////////////////////////////
-    cout << "interpolating..." << endl;
-
-    std::vector<uint8_t> output(nstack, 0.0);
-
-    #pragma omp parallel for
-    for (long long int idx = 0; idx < nstack; idx++)
-    {
-        int z = idx/nslice;
-        int y = (idx-nslice*z)/shape[0];
-        int x = (idx-nslice*z-y*shape[0]);
-
-        if (full_reconstruction)
-        {
-            float sqdist = (x-center[0])*(x-center[0])+(y-center[1])*(y-center[1]);
-
-            if (sqdist > rel_inside/2.f*shape[0] && input[idx] == 0.0f)
-            {
-                input[idx] = histobounds.second;
-                output[idx] = oob_value;
-                continue;
-            }
-        }
-
-        float th_x = ((float) x)/(shape[0]-1)*(n_steps[0]-1);
-        float th_y = ((float) y)/(shape[1]-1)*(n_steps[1]-1);
-        float th_z = ((float) z)/(shape[2]-1)*(n_steps[2]-1);
-
-        int xf = std::floor(th_x);
-        int yf = std::floor(th_y);
-        int zf = std::floor(th_z);
-
-        int xc = min(n_steps[0]-1, xf+1);
-        int yc = min(n_steps[1]-1, yf+1);
-        int zc = min(n_steps[2]-1, zf+1);
-
-        float wx = th_x-xf;
-        float wy = th_y-yf;
-        float wz = th_z-zf;
-
-        float val0 = th_map[zf*nslice_th + yf*n_steps[0] + xf];
-        float val1 = th_map[zf*nslice_th + yf*n_steps[0] + xc];
-        float val2 = th_map[zf*nslice_th + yc*n_steps[0] + xf];
-        float val3 = th_map[zf*nslice_th + yc*n_steps[0] + xc];
-
-        float val4 = th_map[zc*nslice_th + yf*n_steps[0] + xf];
-        float val5 = th_map[zc*nslice_th + yf*n_steps[0] + xc];
-        float val6 = th_map[zc*nslice_th + yc*n_steps[0] + xf];
-        float val7 = th_map[zc*nslice_th + yc*n_steps[0] + xc];
-
-        if (val0 > histobounds.second) val0 = val1;
-        if (val1 > histobounds.second) val1 = val0;
-        if (val2 > histobounds.second) val2 = val3;
-        if (val3 > histobounds.second) val3 = val2;
-
-        if (val4 > histobounds.second) val4 = val5;
-        if (val5 > histobounds.second) val5 = val4;
-        if (val6 > histobounds.second) val6 = val7;
-        if (val7 > histobounds.second) val7 = val6;
-
-        val0 = (1.f-wx)*val0 + wx*val1;
-        val1 = (1.f-wx)*val2 + wx*val3;
-        val2 = (1.f-wx)*val4 + wx*val5;
-        val3 = (1.f-wx)*val6 + wx*val7;
-
-        if (val0 > histobounds.second) val0 = val1;
-        if (val1 > histobounds.second) val1 = val0;
-        if (val2 > histobounds.second) val2 = val3;
-        if (val3 > histobounds.second) val3 = val2;
-
-        val0 = (1.f-wy)*val0 + wy*val1;
-        val1 = (1.f-wy)*val2 + wy*val3;
-
-        if (val0 > histobounds.second) val0 = val1;
-        if (val1 > histobounds.second) val1 = val0;
-
-        val0 = (1.f-wz)*val0 + wz*val1;
-
-        float inval = input[idx];
-
-        if (save_thresholds)
-            input[idx] = val0;
-
-        if (val0 > histobounds.second) output[idx] = oob_value;
-        else if (inval <= val0) output[idx] = 0;
-        else output[idx] = 128;
-    }
-    ////////////////////////////////////////////////////////////
-
-    //Save
-    if (save_thresholds)
-        hdcom.SaveTifSequence_32bit(input, shape, outpath +"/localthreshholds/", "thresholds", true);
-
-    hdcom.SaveTifSequence_8bit(output, shape, outpath, "segmented", 0);
-
-    if ("append logfile"){
-        time_t now = time(0);
-        ofstream logfile;
-        logfile.open(rootpath + "/logfile.txt", fstream::in | fstream::out | fstream::app);
-        logfile << ctime(&now);
-        logfile << "ran LocalThresholding:\n";
-        logfile << "-------------------------------------------------------------------------\n";
-        logfile << "    - threshold_mode: " << threshhold_mode << "\n";
-        logfile << "    - stepsize: " << stepsize << "\n";
-        logfile << "    - radius: " << radius << "\n";
-        if (full_reconstruction)
-            logfile << "    - oob_excluded: true \n";
-        else
-            logfile << "    - oob_excluded: false \n";
-        logfile << "-------------------------------------------------------------------------\n\n";
-        logfile.close();
-    }
-
-    return 0;
+	chrono::duration<double> elapsed_total = time1-time0;
+	std::cout << "execution took " << elapsed_total.count() << " s" << std::endl;
+	cout << "------------------------------" << endl;
+	return 0;
 }
