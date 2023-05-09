@@ -28,5 +28,6 @@ Arguments can be passed via the command line. The following arguments are suppor
 | **-o** |/directory/with/segmentation/| (*optional*) optional output directory. By default files are stored in */localseg/* at the level of input directory.|
 | **-step** |integer| (*optional*) modifies the spacing of support points|
 | **-radius** |integer| (*optional*) modifies the radius of the local (spherical) window|
+| **-n_cpu** |integer| (*optional*) sets a maximum to the number of allowed parallel threads (default is 128).|
 |**--subregion**|| (*optional*) image is not a cylindrical reconstruction. This includes zero values at the image boundaries.|
 |**--demo**|| (*optional*) perform a segmentation on the files in the */demo/* directory.|
