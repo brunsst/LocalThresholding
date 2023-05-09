@@ -1,6 +1,11 @@
 #include <iostream>
 #include <omp.h>
 #include <math.h>
+
+#include <libgen.h>
+#include <unistd.h>
+#include <linux/limits.h>
+
 #include "hdcommunication.h"
 #include "auxiliary.h"
 #include "histogram.h"
@@ -9,7 +14,7 @@ using namespace std;
 
 int main(int argc, char* argv[])
 {
-    string inpath = "/media/Data/Adrian/F05/subregion/";
+    string inpath = "";
     string outpath = "";
 
     string threshhold_mode = "otsu"; //only mode right now. kmeans would be reasonable addition
@@ -21,6 +26,7 @@ int main(int argc, char* argv[])
     uint8_t oob_value = 0; //cvalue outside reconstructed area
 
     bool save_thresholds = false;
+
     ////////////////////////////////////////////////////////////
     ////////////////////////////////////////////////////////////
     string rootpath;
@@ -52,6 +58,16 @@ int main(int argc, char* argv[])
             else if (string(argv[i]) == "--subregion")
             {
                 full_reconstruction = false;
+            }
+            else if (string(argv[i]) == "--demo")
+            {
+                char result[PATH_MAX];
+                ssize_t count = readlink("/proc/self/exe", result, PATH_MAX);
+                const char *tmppath;
+                if (count != -1) {
+                    tmppath = dirname(result);
+                }
+                inpath = string(tmppath) +"/Demo/";
             }
         }
         if (outpath.length() == 0){
