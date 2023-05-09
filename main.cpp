@@ -1,5 +1,6 @@
 #include <iostream>
 #include <omp.h>
+#include <math.h>
 #include "hdcommunication.h"
 #include "auxiliary.h"
 #include "histogram.h"
