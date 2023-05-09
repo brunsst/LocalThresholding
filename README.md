@@ -25,7 +25,7 @@ Arguments can be passed via the command line. The following arguments are suppor
 | argument | value | explanation |
 |--------|------------------|-----------|
 | **-i** |/directory/with/tif/sequence/| (*mandatory*) input directory with tiff image sequence|
-| **-i** |/directory/with/segmentation/| (*optional*) optional output directory. By default files are stored in */localseg/* at the level of input directory.|
+| **-o** |/directory/with/segmentation/| (*optional*) optional output directory. By default files are stored in */localseg/* at the level of input directory.|
 | **-step** |integer| (*optional*) modifies the spacing of support points|
 | **-radius** |integer| (*optional*) modifies the radius of the local (spherical) window|
 |**--subregion**|| (*optional*) image is not a cylindrical reconstruction. This includes zero values at the image boundaries.|
